@@ -1,5 +1,5 @@
 import numpy as np
-from axiprop.lib import PropagatorFFT2, PropagatorResampling
+from axiprop.lib import PropagatorFFT2, PropagatorResampling, PropagatorResamplingFresnel
 from scipy.constants import c
 
 from lasy.utils.grid import Grid
@@ -205,7 +205,7 @@ class Laser:
             field_fft, axis=time_axis_indx, norm="backward"
         )
 
-    def propagate(self, distance, nr_boundary=None, backend="NP", show_progress=True):
+    def propagate(self, distance, nr_boundary=None, backend="NP", fresnel = False, N_pad=1, show_progress=True):
         """
         Propagate the laser pulse by the distance specified.
 
@@ -264,17 +264,30 @@ class Laser:
 
         if self.dim == "rt":
             # Construct the propagator (check if exists)
-            if not hasattr(self, "prop"):
-                spatial_axes = (self.grid.axes[0],)
-                self.prop = []
-                for m in self.grid.azimuthal_modes:
+            #if not hasattr(self, "prop"):
+            spatial_axes = (self.grid.axes[0],)
+            self.prop = []
+            for m in self.grid.azimuthal_modes:
+                if fresnel == True:
+                    self.prop.append(
+                        PropagatorResamplingFresnel(
+                        *spatial_axes,
+                        omega / c,
+                        r_axis_new = spatial_axes[0],
+                        mode=m,
+                        backend=backend,
+                        verbose=False,
+                        N_pad=N_pad,
+                        )
+                    )
+                else:
                     self.prop.append(
                         PropagatorResampling(
-                            *spatial_axes,
-                            omega / c,
-                            mode=m,
-                            backend=backend,
-                            verbose=False,
+                        *spatial_axes,
+                        omega / c,
+                        mode=m,
+                        backend=backend,
+                        verbose=False,
                         )
                     )
             # Propagate the spectral image
