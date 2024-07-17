@@ -272,8 +272,10 @@ class Laser:
                     self.prop.append(
                         PropagatorResamplingFresnel(
                         *spatial_axes,
+                        #(spatial_axes[0].max(), spatial_axes[0].size),
                         omega / c,
-                        r_axis_new = spatial_axes[0],
+                        #r_axis_new = (spatial_axes[0].max()/64, spatial_axes[0].size),
+                        r_axis_new = spatial_axes[0]/128,
                         mode=m,
                         backend=backend,
                         verbose=False,
