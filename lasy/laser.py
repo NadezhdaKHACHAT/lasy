@@ -205,7 +205,7 @@ class Laser:
             field_fft, axis=time_axis_indx, norm="backward"
         )
 
-    def propagate(self, distance, nr_boundary=None, backend="NP", fresnel = False, N_pad=1, show_progress=True):
+    def propagate(self, distance, nr_boundary=None, backend="NP", fresnel = False, r_new = None, N_pad=1, show_progress=True):
         """
         Propagate the laser pulse by the distance specified.
 
@@ -264,7 +264,6 @@ class Laser:
 
         if self.dim == "rt":
             # Construct the propagator (check if exists)
-            #if not hasattr(self, "prop"):
             spatial_axes = (self.grid.axes[0],)
             self.prop = []
             for m in self.grid.azimuthal_modes:
@@ -272,10 +271,8 @@ class Laser:
                     self.prop.append(
                         PropagatorResamplingFresnel(
                         *spatial_axes,
-                        #(spatial_axes[0].max(), spatial_axes[0].size),
                         omega / c,
-                        #r_axis_new = (spatial_axes[0].max()/64, spatial_axes[0].size),
-                        r_axis_new = spatial_axes[0]/128,
+                        r_axis_new = r_new, #spatial_axes[0]/128,
                         mode=m,
                         backend=backend,
                         verbose=False,
