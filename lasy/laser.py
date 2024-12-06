@@ -1,5 +1,5 @@
 import numpy as np
-from axiprop.lib import PropagatorFFT2, PropagatorResampling
+from axiprop.lib import PropagatorFFT2, PropagatorResampling, PropagatorResamplingFresnel, PropagatorFFT2Fresnel
 from scipy.constants import c
 
 from lasy.utils.grid import Grid, time_axis_indx
@@ -145,6 +145,84 @@ class Laser:
         if hasattr(profile, "laser_energy"):
             self.normalize(profile.laser_energy, kind="energy")
 
+#    def remove(self):
+#        self.grid.set_spectral_field()
+        
+    def init_kxy_uniform(self, Lx, Ly, Nx, Ny, shift=True):
+        """
+        calculates bandwidth of the laser; used to determine grid size for the Fresnel propagator
+        """
+        
+        x = np.linspace(-Lx/2, Lx/2, Nx)
+        y = np.linspace(-Ly/2, Ly/2, Ny)
+            
+        dx = x[1] - x[0]
+        dy = y[1] - y[0]
+        Nx = x.size
+        Ny = y.size
+    
+        kx = 2 * np.pi * np.fft.fftfreq(Nx, dx)
+        ky = 2 * np.pi * np.fft.fftfreq(Ny, dy)
+    
+        if shift:
+            kx = np.fft.fftshift(kx)
+            ky = np.fft.fftshift(ky)
+            
+        return kx, ky
+        
+    def get_new_grid_size(self, hi, npoints, npoints_new, N_pad, prop_dist):
+        """
+        xyt: if Fresnel propagator is used calculates new size of the grid given newly passed resolution;
+        user can choose whether to overwrite the grid to be this size or not
+
+        """
+        
+        #original x and y resolution
+        Nx = npoints[0]
+        Ny = npoints[1]
+
+        #original lengt
+        Lx = hi[0]*2
+        Ly = hi[1]*2
+
+        Lx_ext = N_pad * Lx #length of x axis padded
+        Ly_ext = N_pad * Ly #length of y axis padded
+        
+        #padded x and y (increased resolution)
+        Nx_ext = int( np.round( N_pad * Nx ))
+        Ny_ext = int( np.round( N_pad * Ny ))
+        
+        #newly passed x and y axis grid points (new resolution)
+        Nx_new = npoints_new[0]
+        Ny_new = npoints_new[1]
+        
+        #unitary vector of the new grid on which the field will be calculated
+        ix0 = (Nx_ext - Nx_new) // 2
+        iy0 = (Ny_ext - Ny_new) // 2
+        
+        #print(ix0)
+        #print(iy0)
+        #wavenumber
+        #where kz_axis is initialy passed: bandwidth of the laser
+        kz = self.omega_1d / c
+        Nkz = kz.size
+        
+        kz_max = kz.max() 
+        
+        dz = prop_dist
+        
+        #padded axis of the new grid 
+        kx, ky = self.init_kxy_uniform(Lx_ext, Ly_ext, Nx_ext, Ny_ext)
+
+        #from the original grid new grid is cut out
+        x = dz * kx[ix0 : ix0 + Nx_new] / kz_max
+        y = dz * ky[iy0 : iy0 + Ny_new] / kz_max
+    
+        print('new x size will be:', max(x))
+        print('new y size will be:', max(y))
+        
+        return x, y
+
     def normalize(self, value, kind="energy"):
         """
         Normalize the pulse either to the energy, peak field amplitude or peak intensity.
@@ -183,9 +261,7 @@ class Laser:
             # The line below assumes that amplitude_multiplier
             # is cylindrically symmetric, hence we pass
             # `r` as `x` and 0 as `y`
-            multiplier = optical_element.amplitude_multiplier(
-                r, 0, omega, self.profile.omega0
-            )
+            multiplier = optical_element.amplitude_multiplier(r, 0, omega)
             # The azimuthal modes are the components of the Fourier transform
             # along theta (FT_theta). Because the multiplier is assumed to be
             # cylindrically symmetric (i.e. theta-independent):
@@ -197,13 +273,11 @@ class Laser:
             x, y, omega = np.meshgrid(
                 self.grid.axes[0], self.grid.axes[1], self.omega_1d, indexing="ij"
             )
-            spectral_field *= optical_element.amplitude_multiplier(
-                x, y, omega, self.profile.omega0
-            )
+            spectral_field *= optical_element.amplitude_multiplier(x, y, omega)
         self.grid.set_spectral_field(spectral_field)
-
+        
     def propagate(
-        self, distance, nr_boundary=None, grid=None, backend="NP", show_progress=True
+        self, distance, nr_boundary=None, grid=None, fresnel=False, N_pad=None, backend="NP", show_progress=True
     ):
         """
         Propagate the laser pulse by the distance specified.
@@ -221,7 +295,13 @@ class Laser:
         grid : Grid object (optional)
             Resample the field onto a new grid of different radial size and/or different number
             of radial grid points. Only works for ``'rt'``.
+        
+        fresnel : wheter to use fresnel resampling (use only for the far field)
+            rt: possible to pass different r-axis (size and number of grid points)
+            xyt: only change the number of points (resolution) of xy grid; N_pad must be >1
 
+        N_pad : padding for the Fresnel propagator
+        
         backend : string (optional)
             Backend used by axiprop (see axiprop documentation).
 
@@ -269,16 +349,29 @@ class Laser:
                 self.prop = []  # Delete existing propagator
                 # Construct the propagator and pass resampled axis
                 for m in self.grid.azimuthal_modes:
-                    self.prop.append(
-                        PropagatorResampling(
+                    if fresnel == True:
+                        self.prop.append(
+                            PropagatorResamplingFresnel(
                             *spatial_axes,
                             self.omega_1d / c,
-                            *spatial_axes_n,
+                            *spatial_axes_n, 
                             mode=m,
                             backend=backend,
                             verbose=False,
+                            N_pad=N_pad,
+                            )
                         )
-                    )
+                    else:
+                        self.prop.append(
+                            PropagatorResampling(
+                                *spatial_axes,
+                                self.omega_1d / c,
+                                *spatial_axes_n,
+                                mode=m,
+                                backend=backend,
+                                verbose=False,
+                            )
+                        )
             # No resampling (propagating on existing grid)
             else:
                 if not hasattr(self, "prop"):
@@ -303,7 +396,7 @@ class Laser:
                 transform_data = self.prop[i_m].step(
                     transform_data,
                     distance,
-                    overwrite=False,
+                    overwrite=False, 
                     show_progress=show_progress,
                 )
                 if grid is not None:
@@ -318,26 +411,83 @@ class Laser:
                 spectral_field = spectral_field_n
                 # Delete Propagator if resampling and propagation was done
                 del self.prop
-
+        
+        # for xyt
         else:
-            # Construct the propagator (check if exists)
-            if not hasattr(self, "prop"):
+            # resampling; not changing r axis, only the resolution
+            if fresnel == True:
+                #remove possible propagators beforhand
+                #del self.prop 
+                
                 Nx, Ny, Nt = self.grid.shape
                 Lx = self.grid.hi[0] - self.grid.lo[0]
                 Ly = self.grid.hi[1] - self.grid.lo[1]
                 spatial_axes = ((Lx, Nx), (Ly, Ny))
-                self.prop = PropagatorFFT2(
+                
+                Nx_new, Ny_new, Nt_old = grid.shape
+                
+                #rewriting the grid
+                omega_1d = self.omega_1d
+                grid.lo[time_axis_indx] = self.grid.lo[time_axis_indx]
+                grid.hi[time_axis_indx] = self.grid.hi[time_axis_indx]
+                grid.axes[time_axis_indx] = self.grid.axes[time_axis_indx]
+                self.grid = grid
+                
+                self.prop = PropagatorFFT2Fresnel(
                     *spatial_axes,
-                    self.omega_1d / c,
+                    omega_1d / c,
+                    Nx_new = Nx_new,
+                    Ny_new = Ny_new,
+                    N_pad = N_pad,
                     backend=backend,
                     verbose=False,
                 )
-            # Propagate the spectral image
-            transform_data = np.moveaxis(spectral_field, -1, 0).copy()
-            self.prop.step(
-                transform_data, distance, overwrite=True, show_progress=show_progress
+            #no resampling
+            else:
+                # Construct the propagator (check if exists)
+                if not hasattr(self, "prop"):
+                    Nx, Ny, Nt = self.grid.shape
+                    Lx = self.grid.hi[0] - self.grid.lo[0]
+                    Ly = self.grid.hi[1] - self.grid.lo[1]
+                    spatial_axes = ((Lx, Nx), (Ly, Ny))
+                    self.prop = PropagatorFFT2(
+                        *spatial_axes,
+                        self.omega_1d / c,
+                        backend=backend,
+                        verbose=False,
+                    )
+            #rewritten so that the field shape changes
+            transform_data_initial = np.moveaxis(spectral_field, -1, 0).copy()
+            transform_data_final = self.prop.step(
+                transform_data_initial, distance, overwrite=False, show_progress=show_progress
             )
-            spectral_field = np.moveaxis(transform_data, 0, -1).copy()
+            
+            #transform_data = np.moveaxis(spectral_field, -1, 0).copy()
+            #transform_data_final = self.prop.step(
+            #    transform_data, distance, overwrite=False, show_progress=show_progress
+            #)
+            
+            print('final', transform_data_final.shape)
+            
+            spectral_field = np.moveaxis(transform_data_final, 0, -1).copy()
+                               
+            if grid is not None:
+                #overwrite the grid with the new one
+                omega_1d = self.omega_1d
+                grid.lo[time_axis_indx] = self.grid.lo[time_axis_indx]
+                grid.hi[time_axis_indx] = self.grid.hi[time_axis_indx]
+                grid.axes[time_axis_indx] = self.grid.axes[time_axis_indx]
+                self.grid = grid
+                # Delete Propagator if resampling and propagation was done
+                del self.prop        
+                
+                
+            # Propagate the spectral image
+            #transform_data = np.moveaxis(spectral_field, -1, 0).copy()
+            #self.prop.step(
+            #    transform_data, distance, overwrite=True, show_progress=show_progress
+            #)
+            #spectral_field = np.moveaxis(transform_data, 0, -1).copy()
 
         # Choose the time translation assuming propagation at v=c
         translate_time = distance / c
