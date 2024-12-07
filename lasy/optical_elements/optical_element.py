@@ -1,3 +1,4 @@
+
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -15,7 +16,7 @@ class OpticalElement(ABC):
         pass
 
     @abstractmethod
-    def amplitude_multiplier(self, x, y, omega, omega0):
+    def amplitude_multiplier(self, x, y, omega):
         r"""
         Return the amplitude multiplier :math:`T`.
 
@@ -36,9 +37,6 @@ class OpticalElement(ABC):
         x, y, omega : ndarrays of floats
             Define points on which to evaluate the multiplier.
             These arrays need to all have the same shape.
-        omega0 : float (in rad/s)
-            Central angular frequency, as used for the definition
-            of the laser envelope.
 
         Returns
         -------
