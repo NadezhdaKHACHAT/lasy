@@ -1,3 +1,4 @@
+
 import numpy as np
 from scipy.constants import c
 
@@ -28,7 +29,7 @@ class ParabolicMirror(OpticalElement):
     def __init__(self, f):
         self.f = f
 
-    def amplitude_multiplier(self, x, y, omega, omega0):
+    def amplitude_multiplier(self, x, y, omega):
         """
         Return the amplitude multiplier.
 
@@ -37,9 +38,6 @@ class ParabolicMirror(OpticalElement):
         x, y, omega : ndarrays of floats
             Define points on which to evaluate the multiplier.
             These arrays need to all have the same shape.
-        omega0 : float (in rad/s)
-            Central angular frequency, as used for the definition
-            of the laser envelope.
 
         Returns
         -------
